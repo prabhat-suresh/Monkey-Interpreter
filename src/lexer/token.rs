@@ -5,7 +5,7 @@ pub enum Token {
     // when input is exhausted. We treat None as Eof and hence don't require another token for it
 
     // Identifiers and Literals
-    Ident(&'static str),
+    Ident(String),
     Int(i32),
 
     // Operators
