@@ -11,6 +11,15 @@ pub enum Token {
     // Operators
     Assign,
     Plus,
+    Minus,
+    Bang,
+    Asterisk,
+    Slash,
+    LT,
+    GT,
+
+    Eq,
+    NEq,
 
     // Delimiters
     Comma,
@@ -24,4 +33,9 @@ pub enum Token {
     // Keywords
     Function,
     Let,
+    True,
+    False,
+    If,
+    Else,
+    Return,
 }

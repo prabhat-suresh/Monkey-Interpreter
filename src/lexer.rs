@@ -18,15 +18,23 @@ impl<T: Iterator<Item = u8>> Lexer<T> {
             next_byte,
         }
     }
+    fn read_next_byte(&mut self) {
+        self.next_byte = self.src_code_iter.next();
+    }
     fn read_identifier_or_keyword(&mut self) -> Token {
         let mut identifier = String::from("");
         while self.next_byte.is_some_and(is_letter) {
             identifier.push(self.next_byte.unwrap() as char);
-            self.next_byte = self.src_code_iter.next();
+            self.read_next_byte();
         }
         match identifier.as_str() {
             "let" => Token::Let,
             "fn" => Token::Function,
+            "true" => Token::True,
+            "false" => Token::False,
+            "if" => Token::If,
+            "else" => Token::Else,
+            "return" => Token::Return,
             _ => Token::Ident(identifier),
         }
     }
@@ -34,7 +42,7 @@ impl<T: Iterator<Item = u8>> Lexer<T> {
         let mut identifier = String::from("");
         while self.next_byte.is_some_and(|b| b.is_ascii_digit()) {
             identifier.push(self.next_byte.unwrap() as char);
-            self.next_byte = self.src_code_iter.next();
+            self.read_next_byte();
         }
         identifier.parse().expect("Lexer couldn't parse integer")
     }
@@ -48,12 +56,34 @@ impl<T: Iterator<Item = u8>> Iterator for Lexer<T> {
     fn next(&mut self) -> Option<Self::Item> {
         let mut dont_iter = false;
         let iter_next = match self.next_byte? {
-            b'=' => Token::Assign,
+            b'=' => {
+                self.read_next_byte();
+                if self.next_byte == Some(b'=') {
+                    Token::Eq
+                } else {
+                    dont_iter = true;
+                    Token::Assign
+                }
+            }
             b';' => Token::Semicolon,
             b'(' => Token::LParen,
             b')' => Token::RParen,
             b',' => Token::Comma,
             b'+' => Token::Plus,
+            b'-' => Token::Minus,
+            b'!' => {
+                self.read_next_byte();
+                if self.next_byte == Some(b'=') {
+                    Token::NEq
+                } else {
+                    dont_iter = true;
+                    Token::Bang
+                }
+            }
+            b'*' => Token::Asterisk,
+            b'/' => Token::Slash,
+            b'<' => Token::LT,
+            b'>' => Token::GT,
             b'{' => Token::LBrace,
             b'}' => Token::RBrace,
             b if is_letter(b) => {
@@ -66,14 +96,14 @@ impl<T: Iterator<Item = u8>> Iterator for Lexer<T> {
             }
             b if b.is_ascii_whitespace() => {
                 dont_iter = true;
-                self.next_byte = self.src_code_iter.next();
+                self.read_next_byte();
                 self.next()?
             }
             _ => Token::Illegal,
         };
         if !dont_iter {
             // iterate to next byte if it's not already done
-            self.next_byte = self.src_code_iter.next();
+            self.read_next_byte();
         }
         Some(iter_next)
     }
@@ -93,7 +123,18 @@ mod test {
             let add = fn(x, y) {
                 x + y;
             };
-            let result = add(five, ten);";
+            let result = add(five, ten);
+            !-/*5;
+            5 < 10 > 5;
+
+            if (5 < 10) {
+                return true;
+            } else {
+                return false;
+            }
+
+            10 == 10;
+            10 != 9;";
         let mut l = Lexer::new(input.bytes());
         assert_eq!(l.next(), Some(Token::Let));
         assert_eq!(l.next(), Some(Token::Ident("five".to_string())));
@@ -130,6 +171,43 @@ mod test {
         assert_eq!(l.next(), Some(Token::Comma));
         assert_eq!(l.next(), Some(Token::Ident("ten".to_string())));
         assert_eq!(l.next(), Some(Token::RParen));
+        assert_eq!(l.next(), Some(Token::Semicolon));
+        assert_eq!(l.next(), Some(Token::Bang));
+        assert_eq!(l.next(), Some(Token::Minus));
+        assert_eq!(l.next(), Some(Token::Slash));
+        assert_eq!(l.next(), Some(Token::Asterisk));
+        assert_eq!(l.next(), Some(Token::Int(5)));
+        assert_eq!(l.next(), Some(Token::Semicolon));
+        assert_eq!(l.next(), Some(Token::Int(5)));
+        assert_eq!(l.next(), Some(Token::LT));
+        assert_eq!(l.next(), Some(Token::Int(10)));
+        assert_eq!(l.next(), Some(Token::GT));
+        assert_eq!(l.next(), Some(Token::Int(5)));
+        assert_eq!(l.next(), Some(Token::Semicolon));
+        assert_eq!(l.next(), Some(Token::If));
+        assert_eq!(l.next(), Some(Token::LParen));
+        assert_eq!(l.next(), Some(Token::Int(5)));
+        assert_eq!(l.next(), Some(Token::LT));
+        assert_eq!(l.next(), Some(Token::Int(10)));
+        assert_eq!(l.next(), Some(Token::RParen));
+        assert_eq!(l.next(), Some(Token::LBrace));
+        assert_eq!(l.next(), Some(Token::Return));
+        assert_eq!(l.next(), Some(Token::True));
+        assert_eq!(l.next(), Some(Token::Semicolon));
+        assert_eq!(l.next(), Some(Token::RBrace));
+        assert_eq!(l.next(), Some(Token::Else));
+        assert_eq!(l.next(), Some(Token::LBrace));
+        assert_eq!(l.next(), Some(Token::Return));
+        assert_eq!(l.next(), Some(Token::False));
+        assert_eq!(l.next(), Some(Token::Semicolon));
+        assert_eq!(l.next(), Some(Token::RBrace));
+        assert_eq!(l.next(), Some(Token::Int(10)));
+        assert_eq!(l.next(), Some(Token::Eq));
+        assert_eq!(l.next(), Some(Token::Int(10)));
+        assert_eq!(l.next(), Some(Token::Semicolon));
+        assert_eq!(l.next(), Some(Token::Int(10)));
+        assert_eq!(l.next(), Some(Token::NEq));
+        assert_eq!(l.next(), Some(Token::Int(9)));
         assert_eq!(l.next(), Some(Token::Semicolon));
         // We treat None like the EOF token used in the book
         assert_eq!(l.next(), None);
