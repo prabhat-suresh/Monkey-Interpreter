@@ -1,7 +1,7 @@
 mod token;
 use self::token::Token;
 
-struct Lexer<T: Iterator<Item = u8>> {
+pub struct Lexer<T: Iterator<Item = u8>> {
     src_code_iter: T,
     next_byte: Option<u8>,
 }
