@@ -1,4 +1,4 @@
-mod token;
+pub mod token;
 use self::token::Token;
 
 pub struct Lexer<T: Iterator<Item = u8>> {

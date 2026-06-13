@@ -1,6 +1,7 @@
 use std::io::{self, BufReader, BufWriter};
 
 mod lexer;
+mod parser;
 mod repl;
 fn main() {
     println!(
