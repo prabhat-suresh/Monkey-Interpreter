@@ -38,6 +38,15 @@ impl<T: Iterator<Item = u8>> Parser<T> {
                 self.read_next_token();
                 Ok(Statement::Let(self.parse_let_statement()?))
             }
+            Token::Return => {
+                self.read_next_token();
+                let exp = self.parse_expression()?;
+                self.read_next_token();
+                if !matches!(self.next_token, Some(Token::Semicolon)) {
+                    return Err("Parsing Error: no semicolon found in Let Statement");
+                }
+                Ok(Statement::Return(exp))
+            }
             _ => Err("Parsing Error: not a Statement"),
         }
     }
@@ -122,6 +131,38 @@ mod test {
                 name: "foobar".to_string(),
                 value: Expression::Int(838383)
             }))
+        );
+    }
+
+    #[test]
+    fn test_return_statements() {
+        let input = "
+            return 5;
+            return 10;
+            return 993322;";
+        let mut p = Parser::new(Lexer::new(input.bytes()));
+        let program = p.parse_program();
+        assert!(
+            program.is_ok(),
+            "Received error: {}",
+            program.err().unwrap()
+        );
+        let program = program.unwrap();
+        assert_eq!(
+            program.len(),
+            3,
+            "program doesn't contain 3 statements. got: {}",
+            program.len()
+        );
+        let mut program = program.iter();
+        assert_eq!(program.next(), Some(&Statement::Return(Expression::Int(5))));
+        assert_eq!(
+            program.next(),
+            Some(&Statement::Return(Expression::Int(10)))
+        );
+        assert_eq!(
+            program.next(),
+            Some(&Statement::Return(Expression::Int(993322)))
         );
     }
 }
