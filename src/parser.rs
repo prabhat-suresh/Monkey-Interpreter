@@ -1,6 +1,6 @@
 use crate::{
     lexer::{Lexer, token::Token},
-    parser::ast::{Expression, LetStatement, Program, Statement},
+    parser::ast::{Expression, LetStatement, PrefixExpression, Program, Statement},
 };
 
 mod ast;
@@ -27,7 +27,6 @@ impl<T: Iterator<Item = u8>> Parser<T> {
         let mut prog = vec![];
         while self.next_token.is_some() {
             prog.push(self.parse_statement()?);
-            self.read_next_token();
         }
         Ok(prog)
     }
@@ -36,7 +35,9 @@ impl<T: Iterator<Item = u8>> Parser<T> {
         match self.get_next_token()? {
             Token::Let => {
                 self.read_next_token();
-                Ok(Statement::Let(self.parse_let_statement()?))
+                let ls = self.parse_let_statement()?;
+                self.read_next_token();
+                Ok(Statement::Let(ls))
             }
             Token::Return => {
                 self.read_next_token();
@@ -45,9 +46,18 @@ impl<T: Iterator<Item = u8>> Parser<T> {
                 if !matches!(self.next_token, Some(Token::Semicolon)) {
                     return Err("Parsing Error: no semicolon found in Let Statement");
                 }
+                self.read_next_token();
                 Ok(Statement::Return(exp))
             }
-            _ => Err("Parsing Error: not a Statement"),
+            _ => {
+                let exp = self.parse_expression()?;
+                self.read_next_token();
+                if matches!(self.next_token, Some(Token::Semicolon)) {
+                    // As semicolons are optional in Expression Statements
+                    self.read_next_token();
+                }
+                Ok(Statement::Expr(exp))
+            }
         }
     }
 
@@ -73,8 +83,19 @@ impl<T: Iterator<Item = u8>> Parser<T> {
     }
 
     fn parse_expression(&mut self) -> Result<Expression, &'static str> {
-        match self.get_next_token()? {
+        let next_token = self.get_next_token()?;
+        match next_token {
             Token::Int(num) => Ok(Expression::Int(*num)),
+            Token::Ident(var) => Ok(Expression::Ident(var.clone())),
+            Token::Bang | Token::Minus => {
+                let operator = next_token.clone();
+                self.read_next_token();
+                let exp = self.parse_expression()?;
+                Ok(Expression::Prefix(PrefixExpression {
+                    operator,
+                    exp: Box::new(exp),
+                }))
+            }
             _ => Err("Parsing Error: Invalid Expression"),
         }
     }
@@ -83,10 +104,10 @@ impl<T: Iterator<Item = u8>> Parser<T> {
 #[cfg(test)]
 mod test {
     use crate::{
-        lexer::Lexer,
+        lexer::{Lexer, token::Token},
         parser::{
             Parser,
-            ast::{Expression, LetStatement, Statement},
+            ast::{Expression, LetStatement, PrefixExpression, Statement},
         },
     };
 
@@ -132,6 +153,7 @@ mod test {
                 value: Expression::Int(838383)
             }))
         );
+        assert_eq!(program.next(), None);
     }
 
     #[test]
@@ -164,5 +186,90 @@ mod test {
             program.next(),
             Some(&Statement::Return(Expression::Int(993322)))
         );
+        assert_eq!(program.next(), None);
+    }
+
+    #[test]
+    fn test_identifier_expression() {
+        let input = "foobar;";
+        let mut p = Parser::new(Lexer::new(input.bytes()));
+        let program = p.parse_program();
+        assert!(
+            program.is_ok(),
+            "Received error: {}",
+            program.err().unwrap()
+        );
+        let program = program.unwrap();
+        assert_eq!(
+            program.len(),
+            1,
+            "program doesn't contain 1 statement. got: {}",
+            program.len()
+        );
+        let mut program = program.iter();
+        assert_eq!(
+            program.next(),
+            Some(&Statement::Expr(Expression::Ident("foobar".to_string())))
+        );
+        assert_eq!(program.next(), None);
+    }
+
+    #[test]
+    fn test_integer_literal_expression() {
+        let input = "5;";
+        let mut p = Parser::new(Lexer::new(input.bytes()));
+        let program = p.parse_program();
+        assert!(
+            program.is_ok(),
+            "Received error: {}",
+            program.err().unwrap()
+        );
+        let program = program.unwrap();
+        assert_eq!(
+            program.len(),
+            1,
+            "program doesn't contain 1 statement. got: {}",
+            program.len()
+        );
+        let mut program = program.iter();
+        assert_eq!(program.next(), Some(&Statement::Expr(Expression::Int(5))));
+        assert_eq!(program.next(), None);
+    }
+
+    #[test]
+    fn test_prefix_expressions() {
+        let input = "
+            !5;
+            -15;";
+        let mut p = Parser::new(Lexer::new(input.bytes()));
+        let program = p.parse_program();
+        assert!(
+            program.is_ok(),
+            "Received error: {}",
+            program.err().unwrap()
+        );
+        let program = program.unwrap();
+        assert_eq!(
+            program.len(),
+            2,
+            "program doesn't contain 2 statements. got: {}",
+            program.len()
+        );
+        let mut program = program.iter();
+        assert_eq!(
+            program.next(),
+            Some(&Statement::Expr(Expression::Prefix(PrefixExpression {
+                operator: Token::Bang,
+                exp: Box::new(Expression::Int(5))
+            })))
+        );
+        assert_eq!(
+            program.next(),
+            Some(&Statement::Expr(Expression::Prefix(PrefixExpression {
+                operator: Token::Minus,
+                exp: Box::new(Expression::Int(15))
+            })))
+        );
+        assert_eq!(program.next(), None);
     }
 }
