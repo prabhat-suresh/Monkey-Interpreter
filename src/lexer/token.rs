@@ -39,3 +39,19 @@ pub enum Token {
     Else,
     Return,
 }
+
+impl Token {
+    pub fn is_infix_operator(&self) -> bool {
+        matches!(
+            self,
+            Token::Plus
+                | Token::Minus
+                | Token::Asterisk
+                | Token::Slash
+                | Token::GT
+                | Token::LT
+                | Token::Eq
+                | Token::NEq
+        )
+    }
+}

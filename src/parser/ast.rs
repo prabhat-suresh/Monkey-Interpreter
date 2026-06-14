@@ -14,6 +14,7 @@ pub enum Expression {
     Ident(String),
     Int(i32),
     Prefix(PrefixExpression),
+    Infix(InfixExpression),
 }
 
 #[derive(Debug, PartialEq)]
@@ -26,6 +27,13 @@ pub struct LetStatement {
 pub struct PrefixExpression {
     pub operator: Token,
     pub exp: Box<Expression>,
+}
+
+#[derive(Debug, PartialEq)]
+pub struct InfixExpression {
+    pub left_exp: Box<Expression>,
+    pub operator: Token,
+    pub right_exp: Box<Expression>,
 }
 
 pub type Identifier = String;
