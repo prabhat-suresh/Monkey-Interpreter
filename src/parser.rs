@@ -158,6 +158,16 @@ impl<T: Iterator<Item = u8>> Parser<T> {
                         precedence,
                     )
                 }
+                Token::LParen => {
+                    self.read_next_token();
+                    let exp = self.parse_expression(None, Precedence::Lowest)?;
+                    if *self.get_next_token()? != Token::RParen {
+                        return Err("Expected RParen but it's missing");
+                    } else {
+                        self.read_next_token();
+                    }
+                    self.infix_helper(exp, precedence)
+                }
                 _ => Err("Parsing Error: Invalid Expression"),
             },
             Some(left_exp) => {
@@ -647,6 +657,143 @@ mod test {
         assert_eq!(
             program.next(),
             Some(&Statement::Expr(Expression::Bool(false)))
+        );
+        assert_eq!(program.next(), None);
+    }
+
+    #[test]
+    fn test_operator_precedence_parsing_with_parantheses() {
+        let input = "
+            -( a*b )
+            !( -a )
+            a+( b-c )
+            a*( b/c )
+            ( a+b )/c
+            ( a + b ) * ( c + d ) / ( e - f )
+            ( 3 + 4 ) * ( ( 5 == 3 ) * ( 1 + 4 ) * 5 )";
+        let mut p = Parser::new(Lexer::new(input.bytes()));
+        let program = p.parse_program();
+        assert!(
+            program.is_ok(),
+            "Received error: {}",
+            program.err().unwrap()
+        );
+        let program = program.unwrap();
+        assert_eq!(
+            program.len(),
+            7,
+            "program doesn't contain 7 statements. got: {}",
+            program.len()
+        );
+        let mut program = program.iter();
+        assert_eq!(
+            program.next(),
+            Some(&Statement::Expr(Expression::Prefix(PrefixExpression {
+                operator: Token::Minus,
+                exp: Box::new(Expression::Infix(InfixExpression {
+                    left_exp: Box::new(Expression::Ident("a".to_string())),
+                    operator: Token::Asterisk,
+                    right_exp: Box::new(Expression::Ident("b".to_string()))
+                })),
+            })))
+        );
+        assert_eq!(
+            program.next(),
+            Some(&Statement::Expr(Expression::Prefix(PrefixExpression {
+                operator: Token::Bang,
+                exp: Box::new(Expression::Prefix(PrefixExpression {
+                    operator: Token::Minus,
+                    exp: Box::new(Expression::Ident("a".to_string()))
+                }))
+            }))),
+        );
+        assert_eq!(
+            program.next(),
+            Some(&Statement::Expr(Expression::Infix(InfixExpression {
+                left_exp: Box::new(Expression::Ident("a".to_string())),
+                operator: Token::Plus,
+                right_exp: Box::new(Expression::Infix(InfixExpression {
+                    left_exp: Box::new(Expression::Ident("b".to_string())),
+                    operator: Token::Minus,
+                    right_exp: Box::new(Expression::Ident("c".to_string()))
+                })),
+            })))
+        );
+        assert_eq!(
+            program.next(),
+            Some(&Statement::Expr(Expression::Infix(InfixExpression {
+                left_exp: Box::new(Expression::Ident("a".to_string())),
+                operator: Token::Asterisk,
+                right_exp: Box::new(Expression::Infix(InfixExpression {
+                    left_exp: Box::new(Expression::Ident("b".to_string())),
+                    operator: Token::Slash,
+                    right_exp: Box::new(Expression::Ident("c".to_string()))
+                })),
+            })))
+        );
+        assert_eq!(
+            program.next(),
+            Some(&Statement::Expr(Expression::Infix(InfixExpression {
+                left_exp: Box::new(Expression::Infix(InfixExpression {
+                    left_exp: Box::new(Expression::Ident("a".to_string())),
+                    operator: Token::Plus,
+                    right_exp: Box::new(Expression::Ident("b".to_string()))
+                })),
+                operator: Token::Slash,
+                right_exp: Box::new(Expression::Ident("c".to_string())),
+            })))
+        );
+        assert_eq!(
+            program.next(),
+            Some(&Statement::Expr(Expression::Infix(InfixExpression {
+                left_exp: Box::new(Expression::Infix(InfixExpression {
+                    left_exp: Box::new(Expression::Infix(InfixExpression {
+                        left_exp: Box::new(Expression::Ident("a".to_string())),
+                        operator: Token::Plus,
+                        right_exp: Box::new(Expression::Ident("b".to_string())),
+                    })),
+                    operator: Token::Asterisk,
+                    right_exp: Box::new(Expression::Infix(InfixExpression {
+                        left_exp: Box::new(Expression::Ident("c".to_string())),
+                        operator: Token::Plus,
+                        right_exp: Box::new(Expression::Ident("d".to_string()))
+                    })),
+                })),
+                operator: Token::Slash,
+                right_exp: Box::new(Expression::Infix(InfixExpression {
+                    left_exp: Box::new(Expression::Ident("e".to_string())),
+                    operator: Token::Minus,
+                    right_exp: Box::new(Expression::Ident("f".to_string()))
+                })),
+            })))
+        );
+        assert_eq!(
+            program.next(),
+            Some(&Statement::Expr(Expression::Infix(InfixExpression {
+                left_exp: Box::new(Expression::Infix(InfixExpression {
+                    left_exp: Box::new(Expression::Int(3)),
+                    operator: Token::Plus,
+                    right_exp: Box::new(Expression::Int(4))
+                })),
+                operator: Token::Asterisk,
+                right_exp: Box::new(Expression::Infix(InfixExpression {
+                    left_exp: Box::new(Expression::Infix(InfixExpression {
+                        left_exp: Box::new(Expression::Infix(InfixExpression {
+                            left_exp: Box::new(Expression::Int(5)),
+                            operator: Token::Eq,
+                            right_exp: Box::new(Expression::Int(3))
+                        })),
+                        operator: Token::Asterisk,
+                        right_exp: Box::new(Expression::Infix(InfixExpression {
+                            left_exp: Box::new(Expression::Int(1)),
+                            operator: Token::Plus,
+                            right_exp: Box::new(Expression::Int(4)),
+                        }))
+                    })),
+                    operator: Token::Asterisk,
+                    right_exp: Box::new(Expression::Int(5))
+                })),
+            })))
         );
         assert_eq!(program.next(), None);
     }
