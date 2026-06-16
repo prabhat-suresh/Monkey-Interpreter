@@ -13,6 +13,7 @@ pub enum Statement {
 pub enum Expression {
     Ident(String),
     Int(i32),
+    Bool(bool),
     Prefix(PrefixExpression),
     Infix(InfixExpression),
 }

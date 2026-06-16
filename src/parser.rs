@@ -138,6 +138,14 @@ impl<T: Iterator<Item = u8>> Parser<T> {
                     self.read_next_token();
                     self.infix_helper(Expression::Ident(var), precedence)
                 }
+                Token::True => {
+                    self.read_next_token();
+                    self.infix_helper(Expression::Bool(true), precedence)
+                }
+                Token::False => {
+                    self.read_next_token();
+                    self.infix_helper(Expression::Bool(false), precedence)
+                }
                 Token::Bang | Token::Minus => {
                     let operator = next_token.clone();
                     self.read_next_token();
@@ -610,6 +618,35 @@ mod test {
                     }))
                 })),
             })))
+        );
+        assert_eq!(program.next(), None);
+    }
+
+    #[test]
+    fn test_boolean_literal_expression() {
+        let input = "true;false;";
+        let mut p = Parser::new(Lexer::new(input.bytes()));
+        let program = p.parse_program();
+        assert!(
+            program.is_ok(),
+            "Received error: {}",
+            program.err().unwrap()
+        );
+        let program = program.unwrap();
+        assert_eq!(
+            program.len(),
+            2,
+            "program doesn't contain 2 statements. got: {}",
+            program.len()
+        );
+        let mut program = program.iter();
+        assert_eq!(
+            program.next(),
+            Some(&Statement::Expr(Expression::Bool(true)))
+        );
+        assert_eq!(
+            program.next(),
+            Some(&Statement::Expr(Expression::Bool(false)))
         );
         assert_eq!(program.next(), None);
     }
