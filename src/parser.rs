@@ -1,7 +1,8 @@
 use crate::{
     lexer::{Lexer, token::Token},
     parser::ast::{
-        Expression, InfixExpression, LetStatement, PrefixExpression, Program, Statement,
+        BlockStatement, Expression, IfElseExpression, InfixExpression, LetStatement,
+        PrefixExpression, Program, Statement,
     },
 };
 
@@ -120,6 +121,26 @@ impl<T: Iterator<Item = u8>> Parser<T> {
         }
     }
 
+    fn parse_block_statement(&mut self) -> Result<BlockStatement, &'static str> {
+        if *self.get_next_token()? != Token::LBrace {
+            return Err("Expected LBrace in If statement, but it's missing");
+        }
+        self.read_next_token();
+        let mut block = vec![];
+        while self
+            .next_token
+            .as_ref()
+            .is_some_and(|tok| *tok != Token::RBrace)
+        {
+            block.push(self.parse_statement()?);
+        }
+        if *self.get_next_token()? != Token::RBrace {
+            return Err("Expected RBrace in If statement, but it's missing");
+        }
+        self.read_next_token();
+        Ok(block)
+    }
+
     fn parse_expression(
         &mut self,
         left_expr: Option<Expression>,
@@ -163,10 +184,36 @@ impl<T: Iterator<Item = u8>> Parser<T> {
                     let exp = self.parse_expression(None, Precedence::Lowest)?;
                     if *self.get_next_token()? != Token::RParen {
                         return Err("Expected RParen but it's missing");
-                    } else {
-                        self.read_next_token();
                     }
+                    self.read_next_token();
                     self.infix_helper(exp, precedence)
+                }
+                Token::If => {
+                    self.read_next_token();
+                    if *self.get_next_token()? != Token::LParen {
+                        return Err("Expected LParen in If statement, but it's missing");
+                    }
+                    self.read_next_token();
+                    let condition = self.parse_expression(None, Precedence::Lowest)?;
+                    if *self.get_next_token()? != Token::RParen {
+                        return Err("Expected RParen in If statement, but it's missing");
+                    }
+                    self.read_next_token();
+
+                    let consequence = self.parse_block_statement()?;
+                    let mut alternative = vec![];
+                    if *self.get_next_token()? == Token::Else {
+                        self.read_next_token();
+                        alternative = self.parse_block_statement()?;
+                    }
+                    self.infix_helper(
+                        Expression::IfElse(IfElseExpression {
+                            condition: Box::new(condition),
+                            consequence,
+                            alternative,
+                        }),
+                        precedence,
+                    )
                 }
                 _ => Err("Parsing Error: Invalid Expression"),
             },
@@ -202,7 +249,10 @@ mod test {
         lexer::{Lexer, token::Token},
         parser::{
             Parser,
-            ast::{Expression, InfixExpression, LetStatement, PrefixExpression, Statement},
+            ast::{
+                Expression, IfElseExpression, InfixExpression, LetStatement, PrefixExpression,
+                Statement,
+            },
         },
     };
 
@@ -793,6 +843,53 @@ mod test {
                     operator: Token::Asterisk,
                     right_exp: Box::new(Expression::Int(5))
                 })),
+            })))
+        );
+        assert_eq!(program.next(), None);
+    }
+
+    #[test]
+    fn test_if_else_expressions() {
+        let input = "
+            if (x < y) { x }
+            if (x < y) { x } else { y }";
+        let mut p = Parser::new(Lexer::new(input.bytes()));
+        let program = p.parse_program();
+        assert!(
+            program.is_ok(),
+            "Received error: {}",
+            program.err().unwrap()
+        );
+        let program = program.unwrap();
+        assert_eq!(
+            program.len(),
+            2,
+            "program doesn't contain 2 statements. got: {}",
+            program.len()
+        );
+        let mut program = program.iter();
+        assert_eq!(
+            program.next(),
+            Some(&Statement::Expr(Expression::IfElse(IfElseExpression {
+                condition: Box::new(Expression::Infix(InfixExpression {
+                    left_exp: Box::new(Expression::Ident("x".to_string())),
+                    operator: Token::LT,
+                    right_exp: Box::new(Expression::Ident("y".to_string()))
+                })),
+                consequence: vec![Statement::Expr(Expression::Ident("x".to_string()))],
+                alternative: vec![]
+            })))
+        );
+        assert_eq!(
+            program.next(),
+            Some(&Statement::Expr(Expression::IfElse(IfElseExpression {
+                condition: Box::new(Expression::Infix(InfixExpression {
+                    left_exp: Box::new(Expression::Ident("x".to_string())),
+                    operator: Token::LT,
+                    right_exp: Box::new(Expression::Ident("y".to_string()))
+                })),
+                consequence: vec![Statement::Expr(Expression::Ident("x".to_string()))],
+                alternative: vec![Statement::Expr(Expression::Ident("y".to_string()))],
             })))
         );
         assert_eq!(program.next(), None);
