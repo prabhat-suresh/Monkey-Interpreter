@@ -1,6 +1,6 @@
 use std::io;
 
-use crate::lexer;
+use crate::{lexer, parser};
 
 const PROMPT: &str = ">> ";
 
@@ -16,11 +16,11 @@ pub fn start(mut reader: impl io::BufRead, mut writer: impl io::Write) {
             .expect("REPL failed to read line");
 
         let l = lexer::Lexer::new(buf.bytes());
-        for token in l {
-            writer
-                .write_all(format!("{:?}\n", token).as_bytes())
-                .expect("REPL failed to write output");
-        }
+        let mut p = parser::Parser::new(l);
+        let ast = p.parse_program();
+        writer
+            .write_all(format!("{:?}\n", ast).as_bytes())
+            .expect("REPL failed to write output");
         writer.flush().expect("REPL failed to flush output");
     }
 }

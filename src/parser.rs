@@ -1,8 +1,8 @@
 use crate::{
     lexer::{Lexer, token::Token},
     parser::ast::{
-        BlockStatement, Expression, IfElseExpression, InfixExpression, LetStatement,
-        PrefixExpression, Program, Statement,
+        BlockStatement, Expression, FunctionCallExpression, FunctionExpression, Identifier,
+        IfElseExpression, InfixExpression, LetStatement, PrefixExpression, Program, Statement,
     },
 };
 
@@ -20,7 +20,6 @@ enum Precedence {
     Sum,
     Product,
     Prefix,
-    Call,
 }
 
 impl Precedence {
@@ -49,7 +48,7 @@ impl<T: Iterator<Item = u8>> Parser<T> {
             .ok_or("No tokens to parse a statement")
     }
 
-    fn parse_program(&mut self) -> Result<Program, &'static str> {
+    pub fn parse_program(&mut self) -> Result<Program, &'static str> {
         let mut prog = vec![];
         while self.next_token.is_some() {
             prog.push(self.parse_statement()?);
@@ -127,15 +126,8 @@ impl<T: Iterator<Item = u8>> Parser<T> {
         }
         self.read_next_token();
         let mut block = vec![];
-        while self
-            .next_token
-            .as_ref()
-            .is_some_and(|tok| *tok != Token::RBrace)
-        {
+        while *self.get_next_token()? != Token::RBrace {
             block.push(self.parse_statement()?);
-        }
-        if *self.get_next_token()? != Token::RBrace {
-            return Err("Expected RBrace in If statement, but it's missing");
         }
         self.read_next_token();
         Ok(block)
@@ -190,35 +182,27 @@ impl<T: Iterator<Item = u8>> Parser<T> {
                 }
                 Token::If => {
                     self.read_next_token();
-                    if *self.get_next_token()? != Token::LParen {
-                        return Err("Expected LParen in If statement, but it's missing");
-                    }
+                    self.parse_if_else_expression(precedence)
+                }
+                Token::Function => {
                     self.read_next_token();
-                    let condition = self.parse_expression(None, Precedence::Lowest)?;
-                    if *self.get_next_token()? != Token::RParen {
-                        return Err("Expected RParen in If statement, but it's missing");
-                    }
-                    self.read_next_token();
-
-                    let consequence = self.parse_block_statement()?;
-                    let mut alternative = vec![];
-                    if *self.get_next_token()? == Token::Else {
-                        self.read_next_token();
-                        alternative = self.parse_block_statement()?;
-                    }
-                    self.infix_helper(
-                        Expression::IfElse(IfElseExpression {
-                            condition: Box::new(condition),
-                            consequence,
-                            alternative,
-                        }),
-                        precedence,
-                    )
+                    let func = self.parse_function_literals()?;
+                    self.infix_helper(func, precedence)
                 }
                 _ => Err("Parsing Error: Invalid Expression"),
             },
             Some(left_exp) => {
-                if next_token.is_infix_operator() {
+                if let Ok(Token::LParen) = self.get_next_token() {
+                    self.read_next_token();
+                    let arguments = self.parse_arguments()?;
+                    self.infix_helper(
+                        Expression::FnCall(FunctionCallExpression {
+                            function: Box::new(left_exp),
+                            arguments,
+                        }),
+                        precedence,
+                    )
+                } else if next_token.is_infix_operator() {
                     let op_precedence = Precedence::precedence_of_infix_operator(next_token);
                     if op_precedence > precedence {
                         let operator = next_token.clone();
@@ -236,10 +220,88 @@ impl<T: Iterator<Item = u8>> Parser<T> {
                         Ok(left_exp)
                     }
                 } else {
-                    Err("Parsing Error: Invalid Expression")
+                    Err("Parsing Error: Expected infix operator")
                 }
             }
         }
+    }
+
+    fn parse_if_else_expression(
+        &mut self,
+        precedence: Precedence,
+    ) -> Result<Expression, &'static str> {
+        if *self.get_next_token()? != Token::LParen {
+            return Err("Expected LParen in If statement, but it's missing");
+        }
+        self.read_next_token();
+        let condition = self.parse_expression(None, Precedence::Lowest)?;
+        if *self.get_next_token()? != Token::RParen {
+            return Err("Expected RParen in If statement, but it's missing");
+        }
+        self.read_next_token();
+
+        let consequence = self.parse_block_statement()?;
+        let mut alternative = vec![];
+        if *self.get_next_token()? == Token::Else {
+            self.read_next_token();
+            alternative = self.parse_block_statement()?;
+        }
+        self.infix_helper(
+            Expression::IfElse(IfElseExpression {
+                condition: Box::new(condition),
+                consequence,
+                alternative,
+            }),
+            precedence,
+        )
+    }
+
+    fn parse_function_literals(&mut self) -> Result<Expression, &'static str> {
+        let parameters = self.parse_parameters()?;
+        self.read_next_token();
+
+        let body = self.parse_block_statement()?;
+        Ok(Expression::Fn(FunctionExpression { parameters, body }))
+    }
+
+    fn parse_parameters(&mut self) -> Result<Vec<Identifier>, &'static str> {
+        if *self.get_next_token()? != Token::LParen {
+            return Err("Expected LParen in parameter list, but it's missing");
+        }
+        self.read_next_token();
+        let mut params = vec![];
+        while let Token::Ident(var) = self.get_next_token()? {
+            params.push(var.clone());
+            self.read_next_token();
+            if *self.get_next_token()? == Token::Comma {
+                self.read_next_token();
+            } else {
+                break;
+            }
+        }
+        if *self.get_next_token()? != Token::RParen {
+            return Err("Expected RParen in parameter list, but it's missing");
+        }
+
+        Ok(params)
+    }
+
+    fn parse_arguments(&mut self) -> Result<Vec<Expression>, &'static str> {
+        let mut args = vec![];
+        while let Ok(expr) = self.parse_expression(None, Precedence::Lowest) {
+            args.push(expr);
+            if *self.get_next_token()? == Token::Comma {
+                self.read_next_token();
+            } else {
+                break;
+            }
+        }
+        if *self.get_next_token()? != Token::RParen {
+            return Err("Expected RParen in argument list, but it's missing");
+        }
+        self.read_next_token();
+
+        Ok(args)
     }
 }
 
@@ -250,8 +312,8 @@ mod test {
         parser::{
             Parser,
             ast::{
-                Expression, IfElseExpression, InfixExpression, LetStatement, PrefixExpression,
-                Statement,
+                Expression, FunctionCallExpression, FunctionExpression, IfElseExpression,
+                InfixExpression, LetStatement, PrefixExpression, Statement,
             },
         },
     };
@@ -717,10 +779,10 @@ mod test {
             -( a*b )
             !( -a )
             a+( b-c )
-            a*( b/c )
-            ( a+b )/c
-            ( a + b ) * ( c + d ) / ( e - f )
-            ( 3 + 4 ) * ( ( 5 == 3 ) * ( 1 + 4 ) * 5 )";
+            a*( b/c );
+            ( a+b )/c;
+            ( a + b ) * ( c + d ) / ( e - f );
+            ( 3 + 4 ) * ( isBool( 5 == 3 ) * ( 1 + 4 ) * 5 )";
         let mut p = Parser::new(Lexer::new(input.bytes()));
         let program = p.parse_program();
         assert!(
@@ -828,10 +890,13 @@ mod test {
                 operator: Token::Asterisk,
                 right_exp: Box::new(Expression::Infix(InfixExpression {
                     left_exp: Box::new(Expression::Infix(InfixExpression {
-                        left_exp: Box::new(Expression::Infix(InfixExpression {
-                            left_exp: Box::new(Expression::Int(5)),
-                            operator: Token::Eq,
-                            right_exp: Box::new(Expression::Int(3))
+                        left_exp: Box::new(Expression::FnCall(FunctionCallExpression {
+                            function: Box::new(Expression::Ident("isBool".to_string())),
+                            arguments: vec![Expression::Infix(InfixExpression {
+                                left_exp: Box::new(Expression::Int(5)),
+                                operator: Token::Eq,
+                                right_exp: Box::new(Expression::Int(3))
+                            })]
                         })),
                         operator: Token::Asterisk,
                         right_exp: Box::new(Expression::Infix(InfixExpression {
@@ -891,6 +956,140 @@ mod test {
                 consequence: vec![Statement::Expr(Expression::Ident("x".to_string()))],
                 alternative: vec![Statement::Expr(Expression::Ident("y".to_string()))],
             })))
+        );
+        assert_eq!(program.next(), None);
+    }
+
+    #[test]
+    fn test_function_literals() {
+        let input = "
+            fn (x, y) { x+y; }
+            fn () {42}
+            fn (x) {x*x}";
+        let mut p = Parser::new(Lexer::new(input.bytes()));
+        let program = p.parse_program();
+        assert!(
+            program.is_ok(),
+            "Received error: {}",
+            program.err().unwrap()
+        );
+        let program = program.unwrap();
+        assert_eq!(
+            program.len(),
+            3,
+            "program doesn't contain 3 statements. got: {}",
+            program.len()
+        );
+        let mut program = program.iter();
+        assert_eq!(
+            program.next(),
+            Some(&Statement::Expr(Expression::Fn(FunctionExpression {
+                parameters: vec!["x".to_string(), "y".to_string()],
+                body: vec![Statement::Expr(Expression::Infix(InfixExpression {
+                    left_exp: Box::new(Expression::Ident("x".to_string())),
+                    operator: Token::Plus,
+                    right_exp: Box::new(Expression::Ident("y".to_string()))
+                }))]
+            })))
+        );
+        assert_eq!(
+            program.next(),
+            Some(&Statement::Expr(Expression::Fn(FunctionExpression {
+                parameters: vec![],
+                body: vec![Statement::Expr(Expression::Int(42))]
+            })))
+        );
+        assert_eq!(
+            program.next(),
+            Some(&Statement::Expr(Expression::Fn(FunctionExpression {
+                parameters: vec!["x".to_string()],
+                body: vec![Statement::Expr(Expression::Infix(InfixExpression {
+                    left_exp: Box::new(Expression::Ident("x".to_string())),
+                    operator: Token::Asterisk,
+                    right_exp: Box::new(Expression::Ident("x".to_string()))
+                }))]
+            })))
+        );
+        assert_eq!(program.next(), None);
+    }
+
+    #[test]
+    fn test_call_expression_parsing() {
+        let input = "
+            add(1, 2 * 3, 4 + 5);
+            fn(x, y) { x + y; }(2, 3);
+            callsFunction(2, 3, fn(x, y) { x + y; });";
+        let mut p = Parser::new(Lexer::new(input.bytes()));
+        let program = p.parse_program();
+        assert!(
+            program.is_ok(),
+            "Received error: {}",
+            program.err().unwrap()
+        );
+        let program = program.unwrap();
+        assert_eq!(
+            program.len(),
+            3,
+            "program doesn't contain 3 statements. got: {}",
+            program.len()
+        );
+        let mut program = program.iter();
+        assert_eq!(
+            program.next(),
+            Some(&Statement::Expr(Expression::FnCall(
+                FunctionCallExpression {
+                    function: Box::new(Expression::Ident("add".to_string())),
+                    arguments: vec![
+                        Expression::Int(1),
+                        Expression::Infix(InfixExpression {
+                            left_exp: Box::new(Expression::Int(2)),
+                            operator: Token::Asterisk,
+                            right_exp: Box::new(Expression::Int(3))
+                        }),
+                        Expression::Infix(InfixExpression {
+                            left_exp: Box::new(Expression::Int(4)),
+                            operator: Token::Plus,
+                            right_exp: Box::new(Expression::Int(5))
+                        })
+                    ]
+                }
+            )))
+        );
+        assert_eq!(
+            program.next(),
+            Some(&Statement::Expr(Expression::FnCall(
+                FunctionCallExpression {
+                    function: Box::new(Expression::Fn(FunctionExpression {
+                        parameters: vec!["x".to_string(), "y".to_string()],
+                        body: vec![Statement::Expr(Expression::Infix(InfixExpression {
+                            left_exp: Box::new(Expression::Ident("x".to_string())),
+                            operator: Token::Plus,
+                            right_exp: Box::new(Expression::Ident("y".to_string()))
+                        }))]
+                    })),
+                    arguments: vec![Expression::Int(2), Expression::Int(3),]
+                }
+            )))
+        );
+        assert_eq!(
+            program.next(),
+            Some(&Statement::Expr(Expression::FnCall(
+                FunctionCallExpression {
+                    function: Box::new(Expression::Ident("callsFunction".to_string())),
+                    arguments: vec![
+                        Expression::Int(2),
+                        Expression::Int(3),
+                        Expression::Fn(FunctionExpression {
+                            parameters: vec!["x".to_string(), "y".to_string()],
+                            body: vec![Statement::Expr(Expression::Infix(InfixExpression {
+                                left_exp: Box::new(Expression::Ident("x".to_string())),
+                                operator: Token::Plus,
+                                right_exp: Box::new(Expression::Ident("y".to_string()))
+                            }))]
+                        })
+                    ]
+                }
+            )))
         );
         assert_eq!(program.next(), None);
     }

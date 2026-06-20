@@ -52,6 +52,7 @@ impl Token {
                 | Token::LT
                 | Token::Eq
                 | Token::NEq
+                | Token::LParen
         )
     }
 }

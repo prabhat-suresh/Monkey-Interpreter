@@ -18,6 +18,8 @@ pub enum Expression {
     Prefix(PrefixExpression),
     Infix(InfixExpression),
     IfElse(IfElseExpression),
+    Fn(FunctionExpression),
+    FnCall(FunctionCallExpression),
 }
 
 #[derive(Debug, PartialEq)]
@@ -44,6 +46,18 @@ pub struct IfElseExpression {
     pub condition: Box<Expression>,
     pub consequence: BlockStatement,
     pub alternative: BlockStatement,
+}
+
+#[derive(Debug, PartialEq)]
+pub struct FunctionExpression {
+    pub parameters: Vec<Identifier>,
+    pub body: BlockStatement,
+}
+
+#[derive(Debug, PartialEq)]
+pub struct FunctionCallExpression {
+    pub function: Box<Expression>,
+    pub arguments: Vec<Expression>,
 }
 
 pub type Identifier = String;
