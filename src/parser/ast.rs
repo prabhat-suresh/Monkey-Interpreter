@@ -1,6 +1,5 @@
 use crate::lexer::token::Token;
 
-pub type Program = Vec<Statement>;
 pub type BlockStatement = Vec<Statement>;
 
 #[derive(Debug, PartialEq)]

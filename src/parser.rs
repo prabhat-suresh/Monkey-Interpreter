@@ -2,11 +2,14 @@ use crate::{
     lexer::{Lexer, token::Token},
     parser::ast::{
         BlockStatement, Expression, FunctionCallExpression, FunctionExpression, Identifier,
-        IfElseExpression, InfixExpression, LetStatement, PrefixExpression, Program, Statement,
+        IfElseExpression, InfixExpression, LetStatement, PrefixExpression, Statement,
     },
 };
 
-mod ast;
+pub mod ast;
+
+pub type Program = Vec<Statement>;
+
 pub struct Parser<T: Iterator<Item = u8>> {
     lexer: Lexer<T>,
     next_token: Option<Token>,
